@@ -5,6 +5,7 @@ from app.services.forensic_cleaner.fingerprint_cleaner import FingerprintCleaner
 from app.services.forensic_cleaner.compression_cleaner import CompressionCleaner
 from app.services.forensic_cleaner.adversarial_cleaner import AdversarialCleaner
 from app.services.forensic_cleaner.ensemble_cleaner import EnsembleCleaner
+from app.services.forensic_cleaner.stealth_cleaner import StealthCleaner
 
 __all__ = [
     "MetadataCleaner",
@@ -13,5 +14,6 @@ __all__ = [
     "FingerprintCleaner",
     "CompressionCleaner",
     "AdversarialCleaner",
-    "EnsembleCleaner"
+    "EnsembleCleaner",
+    "StealthCleaner"
 ]
