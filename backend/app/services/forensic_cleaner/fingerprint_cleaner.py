@@ -5,8 +5,6 @@ Fingerprint Cleaner - Remove GAN, Diffusion, and AI model fingerprints from imag
 import numpy as np
 from scipy import stats
 from scipy.ndimage import gaussian_filter
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 import logging
 from typing import Tuple, Optional, Dict, Any, List
 from dataclasses import dataclass
@@ -63,8 +61,8 @@ class FingerprintCleaner:
         # 4. Remove cross-channel correlations
         cleaned = self._remove_cross_channel_correlation(cleaned)
 
-        # 5. Apply PCA-based fingerprint removal
-        cleaned = self._remove_pca_fingerprint(cleaned)
+        # 5. Apply SVD-based fingerprint removal
+        cleaned = self._remove_svd_fingerprint(cleaned)
 
         # Convert back to uint8
         result = np.clip(cleaned * 255, 0, 255).astype(np.uint8)
@@ -106,7 +104,6 @@ class FingerprintCleaner:
         cleaned = ycbcr.copy()
 
         # Clean Y channel (luminance) - keep detail
-        # Add slight noise to hide artifacts
         y_noise = np.random.randn(*ycbcr[:, :, 0].shape) * 0.001
         cleaned[:, :, 0] += y_noise
 
@@ -128,12 +125,6 @@ class FingerprintCleaner:
         """
         h, w, c = image.shape
 
-        # Flatten each channel
-        channels_flat = image.reshape(-1, c)
-
-        # Calculate correlation matrix
-        corr_matrix = np.corrcoef(channels_flat.T)
-
         # Add small noise to break correlations
         noise = np.random.randn(h, w, c) * 0.002
         image_noisy = image + noise
@@ -141,70 +132,40 @@ class FingerprintCleaner:
         # Clamp
         return np.clip(image_noisy, 0, 1)
 
-    def _remove_pca_fingerprint(self, image: np.ndarray) -> np.ndarray:
+    def _remove_svd_fingerprint(self, image: np.ndarray) -> np.ndarray:
         """
-        Remove PCA-based fingerprints (latent space artifacts).
+        Remove SVD-based fingerprints.
         """
         h, w, c = image.shape
 
-        # Reshape for PCA
-        patches = self._extract_patches(image, patch_size=8)
+        # Use SVD instead of PCA (no sklearn dependency)
+        if len(image.shape) == 3:
+            for channel in range(c):
+                # Apply SVD to each channel
+                U, s, Vt = np.linalg.svd(image[:, :, channel], full_matrices=False)
 
-        if patches.shape[0] < 10:
-            return image
+                # Keep only top components (remove fingerprint)
+                n_components = min(32, len(s))
+                s_reduced = s.copy()
+                if n_components < len(s):
+                    s_reduced[n_components:] = 0
 
-        # Standardize
-        scaler = StandardScaler()
-        patches_scaled = scaler.fit_transform(patches)
+                # Reconstruct
+                reconstructed = U @ np.diag(s_reduced) @ Vt
 
-        # Apply PCA
-        n_components = min(patches.shape[1], 32)
-        pca = PCA(n_components=n_components)
-        pca.fit(patches_scaled)
+                # Blend with original
+                image[:, :, channel] = image[:, :, channel] * 0.7 + reconstructed * 0.3
+        else:
+            # Grayscale image
+            U, s, Vt = np.linalg.svd(image, full_matrices=False)
+            n_components = min(32, len(s))
+            s_reduced = s.copy()
+            if n_components < len(s):
+                s_reduced[n_components:] = 0
+            reconstructed = U @ np.diag(s_reduced) @ Vt
+            image = image * 0.7 + reconstructed * 0.3
 
-        # Reconstruct with reduced components (remove fingerprint)
-        patches_reconstructed = pca.inverse_transform(pca.transform(patches_scaled))
-
-        # Reshape back
-        reconstructed = self._reconstruct_patches(patches_reconstructed, (h, w, c), patch_size=8)
-
-        # Blend with original
-        result = image * 0.7 + reconstructed * 0.3
-
-        return np.clip(result, 0, 1)
-
-    def _extract_patches(self, image: np.ndarray, patch_size: int = 8) -> np.ndarray:
-        """Extract patches from image."""
-        h, w, c = image.shape
-        patches = []
-
-        for i in range(0, h - patch_size + 1, patch_size // 2):
-            for j in range(0, w - patch_size + 1, patch_size // 2):
-                patch = image[i:i + patch_size, j:j + patch_size].reshape(-1)
-                patches.append(patch)
-
-        return np.array(patches)
-
-    def _reconstruct_patches(self, patches: np.ndarray, shape: Tuple[int, int, int],
-                            patch_size: int = 8) -> np.ndarray:
-        """Reconstruct image from patches."""
-        h, w, c = shape
-        result = np.zeros((h, w, c))
-        counts = np.zeros((h, w))
-
-        idx = 0
-        for i in range(0, h - patch_size + 1, patch_size // 2):
-            for j in range(0, w - patch_size + 1, patch_size // 2):
-                patch = patches[idx].reshape(patch_size, patch_size, c)
-                result[i:i + patch_size, j:j + patch_size] += patch
-                counts[i:i + patch_size, j:j + patch_size] += 1
-                idx += 1
-
-        # Average overlapping patches
-        counts = np.maximum(counts, 1)
-        result /= counts
-
-        return result
+        return np.clip(image, 0, 1)
 
     def detect_fingerprint(self, image: np.ndarray) -> Dict[str, Any]:
         """
@@ -246,12 +207,12 @@ class FingerprintCleaner:
         # 3. Spectral features
         spectral_features = self._calculate_spectral_features(image)
 
-        # 4. PCA components
+        # 4. SVD components
         patches = self._extract_patches(image, patch_size=8)
         if patches.shape[0] > 10:
-            pca = PCA(n_components=min(patches.shape[1], 16))
-            pca.fit(patches)
-            pca_components = pca.explained_variance_ratio_.tolist()
+            # Use SVD
+            U, s, Vt = np.linalg.svd(patches, full_matrices=False)
+            pca_components = (s / np.sum(s)).tolist()[:16]
         else:
             pca_components = []
 
@@ -319,7 +280,6 @@ class FingerprintCleaner:
         score += min(1.0, cross_corr * 2)
 
         # Low entropy is suspicious (GANs produce less varied images)
-        # Normal entropy ~ 4-6 bits
         if entropy < 3.0:
             score += 0.3
         elif entropy > 7.0:
@@ -331,9 +291,6 @@ class FingerprintCleaner:
         """
         Specifically target GAN fingerprints.
         """
-        # GANs often have strong cross-channel correlations
-        # and specific frequency patterns
-
         # 1. Apply frequency domain filtering
         fft = np.fft.fft2(image.mean(axis=-1) if len(image.shape) == 3 else image)
         fft_shifted = np.fft.fftshift(fft)
@@ -366,9 +323,6 @@ class FingerprintCleaner:
         """
         Specifically target Diffusion model fingerprints.
         """
-        # Diffusion models often leave specific noise patterns
-        # and latent space artifacts
-
         # 1. Apply adaptive smoothing
         smoothed = gaussian_filter(image, sigma=0.3)
 
@@ -380,3 +334,36 @@ class FingerprintCleaner:
         result += noise
 
         return np.clip(result, 0, 1)
+
+    def _extract_patches(self, image: np.ndarray, patch_size: int = 8) -> np.ndarray:
+        """Extract patches from image."""
+        h, w, c = image.shape
+        patches = []
+
+        for i in range(0, h - patch_size + 1, patch_size // 2):
+            for j in range(0, w - patch_size + 1, patch_size // 2):
+                patch = image[i:i + patch_size, j:j + patch_size].reshape(-1)
+                patches.append(patch)
+
+        return np.array(patches)
+
+    def _reconstruct_patches(self, patches: np.ndarray, shape: Tuple[int, int, int],
+                            patch_size: int = 8) -> np.ndarray:
+        """Reconstruct image from patches."""
+        h, w, c = shape
+        result = np.zeros((h, w, c), dtype=np.float32)
+        counts = np.zeros((h, w), dtype=np.float32)
+
+        idx = 0
+        for i in range(0, h - patch_size + 1, patch_size // 2):
+            for j in range(0, w - patch_size + 1, patch_size // 2):
+                patch = patches[idx].reshape(patch_size, patch_size, c)
+                result[i:i + patch_size, j:j + patch_size] += patch
+                counts[i:i + patch_size, j:j + patch_size] += 1
+                idx += 1
+
+        # Average overlapping patches
+        counts = np.maximum(counts, 1)
+        result /= counts[..., None]
+
+        return result
