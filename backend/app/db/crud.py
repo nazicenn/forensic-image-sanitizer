@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone  # timezone eklendi
 from typing import Optional, List
 
 from app.models.job import ProcessingJob, JobStatus
@@ -66,7 +66,7 @@ async def update_job_status(
     """Update job status."""
     job = await get_job(db, job_id)
     job.status = status
-    job.updated_at = datetime.utcnow()
+    job.updated_at = datetime.now(timezone.utc)  # Düzeltildi
 
     if error_message:
         job.error_message = error_message
@@ -75,7 +75,7 @@ async def update_job_status(
         job.progress = progress
 
     if status == JobStatus.COMPLETED:
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)  # Düzeltildi
 
     await db.commit()
     await db.refresh(job)
@@ -90,7 +90,7 @@ async def update_job_processed_filename(
     """Update processed filename."""
     job = await get_job(db, job_id)
     job.processed_filename = processed_filename
-    job.updated_at = datetime.utcnow()
+    job.updated_at = datetime.now(timezone.utc)  # Düzeltildi
     await db.commit()
     await db.refresh(job)
     return job
@@ -129,7 +129,7 @@ async def get_api_key(db: AsyncSession, key: str) -> APIKey:
     )
     api_key = result.scalar_one_or_none()
     if not api_key:
-        raise NotFoundError("Invalid or inactive API key")
+        raise NotFoundError(f"API key not found or inactive")
     return api_key
 
 
@@ -141,7 +141,7 @@ async def update_api_key_last_used(
     result = await db.execute(
         update(APIKey)
         .where(APIKey.key == key)
-        .values(last_used_at=datetime.utcnow())
+        .values(last_used_at=datetime.now(timezone.utc))  # Düzeltildi
     )
     await db.commit()
 
