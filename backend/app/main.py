@@ -5,22 +5,18 @@ from slowapi.errors import RateLimitExceeded
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from fastapi.responses import Response
 
-from app.api.v1.endpoints import health, upload
+from app.api.v1.endpoints import health, upload, status  # status import'u eklendi
 from app.api.middleware.auth import validate_api_key
 from app.api.middleware.rate_limit import limiter, rate_limit_handler
 from app.api.middleware.validator import validate_file_upload
 from app.core.config import settings
 from app.core.metrics import metrics_middleware
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from app.core.logging import setup_logging, get_logger
 
 # Setup logging
-# from app.core.logging import setup_logging, get_logger
-# logger = setup_logging(env="development" if settings.DEBUG else "production")
+logger = setup_logging(env="development" if settings.DEBUG else "production")
 
-# Initialize FastAPI app
+# Initialize FastAPI app (BURASI ÖNEMLİ - app önce tanımlanmalı)
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
@@ -37,7 +33,7 @@ app.middleware("http")(metrics_middleware)
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],  # Tüm origin'lere izin ver (test için)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -90,14 +86,13 @@ async def metrics():
 @app.get("/ready")
 async def readiness():
     """Kubernetes readiness probe."""
-    # Check database, redis, minio connections
-    # For now, return healthy
     return {"status": "ready"}
 
 
-# --- Include routers ---
+# --- Include routers (app tanımlandıktan SONRA) ---
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
+app.include_router(status.router, prefix="/api/v1")  # status router'ı ekle
 
 
 if __name__ == "__main__":
