@@ -11,10 +11,14 @@ from app.api.middleware.rate_limit import limiter, rate_limit_handler
 from app.api.middleware.validator import validate_file_upload
 from app.core.config import settings
 from app.core.metrics import metrics_middleware
-from app.core.logging import setup_logging, get_logger
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Setup logging
-logger = setup_logging(env="development" if settings.DEBUG else "production")
+# from app.core.logging import setup_logging, get_logger
+# logger = setup_logging(env="development" if settings.DEBUG else "production")
 
 # Initialize FastAPI app
 app = FastAPI(
