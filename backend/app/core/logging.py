@@ -4,29 +4,39 @@ Structured Logging Configuration.
 
 import logging
 import sys
-from pythonjsonlogger import jsonlogger
 from datetime import datetime
 
+# Try to import jsonlogger, fallback to standard logging
+try:
+    from pythonjsonlogger import jsonlogger
+    HAS_JSON_LOGGER = True
+except ImportError:
+    HAS_JSON_LOGGER = False
+    jsonlogger = None
 
-class CustomJsonFormatter(jsonlogger.JsonFormatter):
+
+class CustomJsonFormatter:
     """Custom JSON formatter with additional fields."""
-
-    def add_fields(self, log_record, record, message_dict):
-        super().add_fields(log_record, record, message_dict)
-        log_record['timestamp'] = datetime.utcnow().isoformat()
-        log_record['level'] = record.levelname
-        log_record['logger'] = record.name
-        log_record['module'] = record.module
-        log_record['function'] = record.funcName
-        log_record['line'] = record.lineno
+    
+    def __init__(self, fmt=None):
+        self.fmt = fmt or '%(timestamp)s %(level)s %(name)s %(message)s'
+    
+    def format(self, record):
+        log_record = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'level': record.levelname,
+            'logger': record.name,
+            'module': record.module,
+            'function': record.funcName,
+            'line': record.lineno,
+            'message': record.getMessage(),
+        }
+        return str(log_record)
 
 
 def setup_logging(env: str = "development"):
     """
     Setup structured logging.
-
-    Args:
-        env: Environment (development, production)
     """
     # Clear existing handlers
     root_logger = logging.getLogger()
@@ -40,13 +50,13 @@ def setup_logging(env: str = "development"):
     # Create console handler
     console_handler = logging.StreamHandler(sys.stdout)
 
-    if env == "production":
+    if env == "production" and HAS_JSON_LOGGER:
         # JSON format for production
-        formatter = CustomJsonFormatter(
+        formatter = jsonlogger.JsonFormatter(
             fmt='%(timestamp)s %(level)s %(name)s %(message)s'
         )
     else:
-        # Human-readable format for development
+        # Human-readable format for development or fallback
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
