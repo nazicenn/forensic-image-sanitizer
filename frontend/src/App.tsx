@@ -59,7 +59,7 @@ function App() {
       const response = await axios.post(`${API_URL}/api/v1/upload/`, formData, {
         headers: {
   'Content-Type': 'multipart/form-data',
-'X-API-Key': import.meta.env.VITE_API_KEY || 'test-key',},
+'X-API-Key': import.meta.env.VITE_API_KEY || 'test-key',
       });
 
       const data = response.data;
